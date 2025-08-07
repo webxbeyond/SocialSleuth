@@ -12,6 +12,26 @@ PARALLEL_JOBS=10
 TIMEOUT=10
 USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
+# Load external configuration if available
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_LOADED=false
+if [[ -f "$SCRIPT_DIR/config.sh" ]]; then
+    source "$SCRIPT_DIR/config.sh"
+    # Use external config if available, otherwise fall back to internal config
+    if [[ ${#PLATFORM_CONFIG[@]} -gt 0 ]]; then
+        declare -A PLATFORMS=()
+        for platform in "${!PLATFORM_CONFIG[@]}"; do
+            PLATFORMS["$platform"]="${PLATFORM_CONFIG[$platform]}"
+        done
+        # Update defaults from config if available
+        [[ -n "$DEFAULT_TIMEOUT" ]] && TIMEOUT="$DEFAULT_TIMEOUT"
+        [[ -n "$DEFAULT_PARALLEL_JOBS" ]] && PARALLEL_JOBS="$DEFAULT_PARALLEL_JOBS"
+        [[ -n "$DEFAULT_USER_AGENT" ]] && USER_AGENT="$DEFAULT_USER_AGENT"
+        [[ -n "$DEFAULT_OUTPUT_DIR" ]] && OUTPUT_DIR="$DEFAULT_OUTPUT_DIR"
+        CONFIG_LOADED=true
+    fi
+fi
+
 # Color codes
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -22,29 +42,31 @@ CYAN='\033[0;36m'
 WHITE='\033[1;37m'
 NC='\033[0m' # No Color
 
-# Platform configurations
-declare -A PLATFORMS=(
-    ["Instagram"]="https://www.instagram.com/{username}|The link you followed may be broken"
-    ["Facebook"]="https://www.facebook.com/{username}|not found"
-    ["Twitter"]="https://www.twitter.com/{username}|page doesn't exist"
-    ["YouTube"]="https://www.youtube.com/{username}|Not Found"
-    ["GitHub"]="https://www.github.com/{username}|404 Not Found"
-    ["Reddit"]="https://www.reddit.com/user/{username}|404"
-    ["LinkedIn"]="https://www.linkedin.com/in/{username}|404"
-    ["TikTok"]="https://www.tiktok.com/@{username}|couldn't find this account"
-    ["Pinterest"]="https://www.pinterest.com/{username}|?show_error"
-    ["Tumblr"]="https://{username}.tumblr.com|404"
-    ["Medium"]="https://medium.com/@{username}|404"
-    ["DeviantART"]="https://{username}.deviantart.com|404"
-    ["Steam"]="https://steamcommunity.com/id/{username}|The specified profile could not be found"
-    ["Spotify"]="https://open.spotify.com/user/{username}|404"
-    ["SoundCloud"]="https://soundcloud.com/{username}|404 Not Found"
-    ["Twitch"]="https://www.twitch.tv/{username}|Sorry. Unless you've got a time machine"
-    ["Discord"]="https://discord.com/users/{username}|404"
-    ["Snapchat"]="https://www.snapchat.com/add/{username}|Sorry! Couldn't find"
-    ["OnlyFans"]="https://onlyfans.com/{username}|404"
-    ["Patreon"]="https://www.patreon.com/{username}|404"
-)
+# Platform configurations (fallback if config.sh not available)
+if [[ "$CONFIG_LOADED" != true ]]; then
+    declare -A PLATFORMS=(
+        ["Instagram"]="https://www.instagram.com/{username}|The link you followed may be broken"
+        ["Facebook"]="https://www.facebook.com/{username}|not found"
+        ["Twitter"]="https://www.twitter.com/{username}|page doesn't exist"
+        ["YouTube"]="https://www.youtube.com/{username}|Not Found"
+        ["GitHub"]="https://www.github.com/{username}|404 Not Found"
+        ["Reddit"]="https://www.reddit.com/user/{username}|404"
+        ["LinkedIn"]="https://www.linkedin.com/in/{username}|404"
+        ["TikTok"]="https://www.tiktok.com/@{username}|couldn't find this account"
+        ["Pinterest"]="https://www.pinterest.com/{username}|?show_error"
+        ["Tumblr"]="https://{username}.tumblr.com|404"
+        ["Medium"]="https://medium.com/@{username}|404"
+        ["DeviantART"]="https://{username}.deviantart.com|404"
+        ["Steam"]="https://steamcommunity.com/id/{username}|The specified profile could not be found"
+        ["Spotify"]="https://open.spotify.com/user/{username}|404"
+        ["SoundCloud"]="https://soundcloud.com/{username}|404 Not Found"
+        ["Twitch"]="https://www.twitch.tv/{username}|Sorry. Unless you've got a time machine"
+        ["Discord"]="https://discord.com/users/{username}|404"
+        ["Snapchat"]="https://www.snapchat.com/add/{username}|Sorry! Couldn't find"
+        ["OnlyFans"]="https://onlyfans.com/{username}|404"
+        ["Patreon"]="https://www.patreon.com/{username}|404"
+    )
+fi
 
 # Statistics tracking
 declare -A STATS=(
@@ -203,6 +225,7 @@ check_platform() {
     local username="$2"
     local output_file="$3"
     local stats_dir="$4"
+    local results_dir="$5"
     
     local config="${PLATFORMS[$platform]}"
     local url=$(echo "$config" | cut -d'|' -f1 | sed "s/{username}/$username/g")
@@ -224,21 +247,19 @@ check_platform() {
     rm -f "$temp_file"
     
     if [[ $? -ne 0 ]] || [[ -z "$response_code" ]]; then
-        printf "${RED}[!]${NC} %-15s ${RED}Error${NC}\n" "$platform:"
+        echo "ERROR|$platform|Error connecting" >> "$results_dir/errors.tmp"
         echo "1" >> "$stats_dir/errors"
         return 1
     fi
     
     # Check if profile exists
     if [[ "$response_code" == "200" ]] && [[ ! "$http_content" =~ $not_found_indicator ]]; then
-        printf "${GREEN}[+]${NC} %-15s ${GREEN}Found!${NC} $url\n" "$platform:"
+        echo "FOUND|$platform|$url" >> "$results_dir/found.tmp"
         echo "$platform,$url,FOUND" >> "$output_file"
         echo "1" >> "$stats_dir/found"
         return 0
     else
-        if [[ "$VERBOSE" == true ]]; then
-            printf "${YELLOW}[-]${NC} %-15s ${YELLOW}Not Found${NC}\n" "$platform:"
-        fi
+        echo "NOT_FOUND|$platform|$url" >> "$results_dir/not_found.tmp"
         echo "1" >> "$stats_dir/not_found"
         return 1
     fi
@@ -254,7 +275,12 @@ scan_platforms() {
     
     # Create temporary directory for thread-safe statistics
     local stats_dir="/tmp/socialsleuth_stats_$$"
-    mkdir -p "$stats_dir"
+    local results_dir="/tmp/socialsleuth_results_$$"
+    mkdir -p "$stats_dir" "$results_dir"
+    
+    # Initialize statistics files
+    touch "$stats_dir/checked" "$stats_dir/found" "$stats_dir/not_found" "$stats_dir/errors"
+    touch "$results_dir/found.tmp" "$results_dir/not_found.tmp" "$results_dir/errors.tmp"
     
     local platforms_to_check=()
     if [[ -n "$specific_platforms" ]]; then
@@ -270,7 +296,7 @@ scan_platforms() {
     local count=0
     for platform in "${sorted_platforms[@]}"; do
         if [[ -n "${PLATFORMS[$platform]}" ]]; then
-            check_platform "$platform" "$username" "$output_file" "$stats_dir" &
+            check_platform "$platform" "$username" "$output_file" "$stats_dir" "$results_dir" &
             ((count++))
             
             # Limit parallel jobs
@@ -284,14 +310,42 @@ scan_platforms() {
     
     wait # Wait for remaining jobs
     
-    # Collect statistics from temporary files
-    STATS["checked"]=$(wc -l < "$stats_dir/checked" 2>/dev/null || echo "0")
-    STATS["found"]=$(wc -l < "$stats_dir/found" 2>/dev/null || echo "0")
-    STATS["not_found"]=$(wc -l < "$stats_dir/not_found" 2>/dev/null || echo "0")
-    STATS["errors"]=$(wc -l < "$stats_dir/errors" 2>/dev/null || echo "0")
+    # Display results in order: Found first, then Not Found
+    printf "${WHITE}=== FOUND PROFILES ===${NC}\n"
+    if [[ -f "$results_dir/found.tmp" && -s "$results_dir/found.tmp" ]]; then
+        while IFS='|' read -r status platform url; do
+            printf "${GREEN}[+]${NC} %-15s ${GREEN}Found!${NC} $url\n" "$platform:"
+        done < <(sort -t'|' -k2 < "$results_dir/found.tmp")
+    else
+        printf "${YELLOW}No profiles found${NC}\n"
+    fi
     
-    # Clean up temporary directory
-    rm -rf "$stats_dir"
+    # Display not found only in verbose mode
+    if [[ "$VERBOSE" == true ]]; then
+        printf "\n${WHITE}=== NOT FOUND ===${NC}\n"
+        if [[ -f "$results_dir/not_found.tmp" && -s "$results_dir/not_found.tmp" ]]; then
+            while IFS='|' read -r status platform url; do
+                printf "${YELLOW}[-]${NC} %-15s ${YELLOW}Not Found${NC}\n" "$platform:"
+            done < <(sort -t'|' -k2 < "$results_dir/not_found.tmp")
+        fi
+    fi
+    
+    # Display errors
+    if [[ -f "$results_dir/errors.tmp" && -s "$results_dir/errors.tmp" ]]; then
+        printf "\n${WHITE}=== ERRORS ===${NC}\n"
+        while IFS='|' read -r status platform message; do
+            printf "${RED}[!]${NC} %-15s ${RED}$message${NC}\n" "$platform:"
+        done < <(sort -t'|' -k2 < "$results_dir/errors.tmp")
+    fi
+    
+    # Collect statistics from temporary files safely
+    STATS["checked"]=$([ -f "$stats_dir/checked" ] && wc -l < "$stats_dir/checked" || echo "0")
+    STATS["found"]=$([ -f "$stats_dir/found" ] && wc -l < "$stats_dir/found" || echo "0")
+    STATS["not_found"]=$([ -f "$stats_dir/not_found" ] && wc -l < "$stats_dir/not_found" || echo "0")
+    STATS["errors"]=$([ -f "$stats_dir/errors" ] && wc -l < "$stats_dir/errors" || echo "0")
+    
+    # Clean up temporary directories
+    rm -rf "$stats_dir" "$results_dir"
 }
 
 # Function to generate summary report
@@ -364,6 +418,7 @@ convert_output() {
 cleanup() {
     rm -f /tmp/socialsleuth_*.tmp
     rm -rf /tmp/socialsleuth_stats_*
+    rm -rf /tmp/socialsleuth_results_*
     printf "\n${YELLOW}[!]${NC} Scan interrupted. Partial results may be available.\n"
 }
 
