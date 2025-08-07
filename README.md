@@ -52,7 +52,7 @@ choco install curl jq
 
 1. **Clone or Download**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/webxbeyond/SocialSleuth.git
    cd SocialSleuth-main
    ```
 
