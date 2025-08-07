@@ -101,7 +101,7 @@ show_help() {
     printf "${WHITE}Usage:${NC} $0 [OPTIONS] <username>\n\n"
     printf "${WHITE}OPTIONS:${NC}\n"
     printf "  -h, --help          Show this help message\n"
-    printf "  -v, --verbose       Enable verbose output\n"
+    printf "  -v, --verbose       Show all not found platforms (default: shows first 10)\n"
     printf "  -o, --output DIR    Specify output directory (default: results)\n"
     printf "  -j, --jobs NUM      Number of parallel jobs (default: 10)\n"
     printf "  -t, --timeout SEC   Request timeout in seconds (default: 10)\n"
@@ -227,6 +227,9 @@ check_platform() {
     local stats_dir="$4"
     local results_dir="$5"
     
+    # Show real-time progress
+    printf "${CYAN}[>]${NC} Checking %-15s ${CYAN}...${NC}\r" "$platform"
+    
     local config="${PLATFORMS[$platform]}"
     local url=$(echo "$config" | cut -d'|' -f1 | sed "s/{username}/$username/g")
     local not_found_indicator=$(echo "$config" | cut -d'|' -f2)
@@ -249,6 +252,8 @@ check_platform() {
     if [[ $? -ne 0 ]] || [[ -z "$response_code" ]]; then
         echo "ERROR|$platform|Error connecting" >> "$results_dir/errors.tmp"
         echo "1" >> "$stats_dir/errors"
+        # Clear the progress line
+        printf "%-50s\r" " "
         return 1
     fi
     
@@ -257,10 +262,14 @@ check_platform() {
         echo "FOUND|$platform|$url" >> "$results_dir/found.tmp"
         echo "$platform,$url,FOUND" >> "$output_file"
         echo "1" >> "$stats_dir/found"
+        # Clear the progress line
+        printf "%-50s\r" " "
         return 0
     else
         echo "NOT_FOUND|$platform|$url" >> "$results_dir/not_found.tmp"
         echo "1" >> "$stats_dir/not_found"
+        # Clear the progress line
+        printf "%-50s\r" " "
         return 1
     fi
 }
@@ -310,6 +319,9 @@ scan_platforms() {
     
     wait # Wait for remaining jobs
     
+    # Clear any remaining progress indicators
+    printf "%-50s\n" " "
+    
     # Display results in order: Found first, then Not Found
     printf "${WHITE}=== FOUND PROFILES ===${NC}\n"
     if [[ -f "$results_dir/found.tmp" && -s "$results_dir/found.tmp" ]]; then
@@ -320,14 +332,32 @@ scan_platforms() {
         printf "${YELLOW}No profiles found${NC}\n"
     fi
     
-    # Display not found only in verbose mode
-    if [[ "$VERBOSE" == true ]]; then
-        printf "\n${WHITE}=== NOT FOUND ===${NC}\n"
-        if [[ -f "$results_dir/not_found.tmp" && -s "$results_dir/not_found.tmp" ]]; then
+    # Always display not found platforms (unless specifically disabled)
+    printf "\n${WHITE}=== NOT FOUND ===${NC}\n"
+    if [[ -f "$results_dir/not_found.tmp" && -s "$results_dir/not_found.tmp" ]]; then
+        if [[ "$VERBOSE" == true ]]; then
+            # In verbose mode, show all not found platforms
             while IFS='|' read -r status platform url; do
                 printf "${YELLOW}[-]${NC} %-15s ${YELLOW}Not Found${NC}\n" "$platform:"
             done < <(sort -t'|' -k2 < "$results_dir/not_found.tmp")
+        else
+            # In normal mode, show count and first few examples
+            local not_found_count=$(wc -l < "$results_dir/not_found.tmp")
+            printf "${YELLOW}$not_found_count platforms not found${NC}"
+            if [[ $not_found_count -le 10 ]]; then
+                printf " ${YELLOW}(all listed below)${NC}:\n"
+                while IFS='|' read -r status platform url; do
+                    printf "${YELLOW}[-]${NC} %-15s ${YELLOW}Not Found${NC}\n" "$platform:"
+                done < <(sort -t'|' -k2 < "$results_dir/not_found.tmp")
+            else
+                printf " ${YELLOW}(showing first 10, use -v for all)${NC}:\n"
+                while IFS='|' read -r status platform url; do
+                    printf "${YELLOW}[-]${NC} %-15s ${YELLOW}Not Found${NC}\n" "$platform:"
+                done < <(sort -t'|' -k2 < "$results_dir/not_found.tmp" | head -10)
+            fi
         fi
+    else
+        printf "${GREEN}All checked platforms found!${NC}\n"
     fi
     
     # Display errors
