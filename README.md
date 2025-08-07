@@ -50,10 +50,30 @@ choco install curl jq
 
 ## 🛠️ Installation
 
+### Quick Linux Installation (Recommended)
+
+1. **Download and Install**
+   ```bash
+   git clone https://github.com/webxbeyond/SocialSleuth.git
+   cd SocialSleuth
+   chmod +x install.sh
+   ./install.sh  # User installation
+   # OR
+   sudo ./install.sh  # System-wide installation
+   ```
+
+2. **Use the Application**
+   ```bash
+   socialsleuth username
+   socialsleuth --help
+   ```
+
+### Manual Installation
+
 1. **Clone or Download**
    ```bash
    git clone https://github.com/webxbeyond/SocialSleuth.git
-   cd SocialSleuth-main
+   cd SocialSleuth
    ```
 
 2. **Make Executable**
@@ -65,6 +85,12 @@ choco install curl jq
    ```bash
    sudo ln -s /path/to/SocialSleuth.sh /usr/local/bin/socialsleuth
    ```
+
+### Alternative Installation Methods
+
+- **Using Make**: `make user-install` or `sudo make install`
+- **Debian Package**: `./create-deb.sh && sudo dpkg -i socialsleuth_*.deb`
+- **Uninstall**: `./uninstall.sh` or `make user-uninstall`
 
 ## 🎯 Usage
 

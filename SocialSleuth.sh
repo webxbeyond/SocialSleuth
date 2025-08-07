@@ -15,22 +15,33 @@ USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 # Load external configuration if available
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_LOADED=false
-if [[ -f "$SCRIPT_DIR/config.sh" ]]; then
-    source "$SCRIPT_DIR/config.sh"
-    # Use external config if available, otherwise fall back to internal config
-    if [[ ${#PLATFORM_CONFIG[@]} -gt 0 ]]; then
-        declare -A PLATFORMS=()
-        for platform in "${!PLATFORM_CONFIG[@]}"; do
-            PLATFORMS["$platform"]="${PLATFORM_CONFIG[$platform]}"
-        done
-        # Update defaults from config if available
-        [[ -n "$DEFAULT_TIMEOUT" ]] && TIMEOUT="$DEFAULT_TIMEOUT"
-        [[ -n "$DEFAULT_PARALLEL_JOBS" ]] && PARALLEL_JOBS="$DEFAULT_PARALLEL_JOBS"
-        [[ -n "$DEFAULT_USER_AGENT" ]] && USER_AGENT="$DEFAULT_USER_AGENT"
-        [[ -n "$DEFAULT_OUTPUT_DIR" ]] && OUTPUT_DIR="$DEFAULT_OUTPUT_DIR"
-        CONFIG_LOADED=true
+
+# Try loading config from multiple locations (Linux-friendly)
+CONFIG_PATHS=(
+    "$SCRIPT_DIR/config.sh"                    # Local to script
+    "$HOME/.config/socialsleuth/config.sh"    # User config
+    "/etc/socialsleuth/config.sh"             # System config
+)
+
+for config_path in "${CONFIG_PATHS[@]}"; do
+    if [[ -f "$config_path" ]]; then
+        source "$config_path"
+        # Use external config if available, otherwise fall back to internal config
+        if [[ ${#PLATFORM_CONFIG[@]} -gt 0 ]]; then
+            declare -A PLATFORMS=()
+            for platform in "${!PLATFORM_CONFIG[@]}"; do
+                PLATFORMS["$platform"]="${PLATFORM_CONFIG[$platform]}"
+            done
+            # Update defaults from config if available
+            [[ -n "$DEFAULT_TIMEOUT" ]] && TIMEOUT="$DEFAULT_TIMEOUT"
+            [[ -n "$DEFAULT_PARALLEL_JOBS" ]] && PARALLEL_JOBS="$DEFAULT_PARALLEL_JOBS"
+            [[ -n "$DEFAULT_USER_AGENT" ]] && USER_AGENT="$DEFAULT_USER_AGENT"
+            [[ -n "$DEFAULT_OUTPUT_DIR" ]] && OUTPUT_DIR="$DEFAULT_OUTPUT_DIR"
+            CONFIG_LOADED=true
+            break
+        fi
     fi
-fi
+done
 
 # Color codes
 RED='\033[0;31m'
