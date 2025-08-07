@@ -202,26 +202,30 @@ check_platform() {
     local platform="$1"
     local username="$2"
     local output_file="$3"
+    local stats_dir="$4"
     
     local config="${PLATFORMS[$platform]}"
     local url=$(echo "$config" | cut -d'|' -f1 | sed "s/{username}/$username/g")
     local not_found_indicator=$(echo "$config" | cut -d'|' -f2)
     
-    STATS["checked"]=$((STATS["checked"] + 1))
+    # Use temporary files for thread-safe statistics tracking
+    echo "1" >> "$stats_dir/checked"
     
-    local response_code http_content
-    response_code=$(curl -s -o /tmp/socialsleuth_$$.tmp -w "%{http_code}" \
+    local response_code http_content temp_file
+    temp_file="/tmp/socialsleuth_${platform}_$$.tmp"
+    response_code=$(curl -s -o "$temp_file" -w "%{http_code}" \
         --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
         -H "User-Agent: $USER_AGENT" \
         -H "Accept-Language: en" \
         -L "$url" 2>/dev/null)
     
-    http_content=$(cat /tmp/socialsleuth_$$.tmp 2>/dev/null)
-    rm -f /tmp/socialsleuth_$$.tmp
+    # Read content safely, filtering out null bytes
+    http_content=$(tr -d '\0' < "$temp_file" 2>/dev/null)
+    rm -f "$temp_file"
     
-    if [[ $? -ne 0 ]]; then
+    if [[ $? -ne 0 ]] || [[ -z "$response_code" ]]; then
         printf "${RED}[!]${NC} %-15s ${RED}Error${NC}\n" "$platform:"
-        STATS["errors"]=$((STATS["errors"] + 1))
+        echo "1" >> "$stats_dir/errors"
         return 1
     fi
     
@@ -229,13 +233,13 @@ check_platform() {
     if [[ "$response_code" == "200" ]] && [[ ! "$http_content" =~ $not_found_indicator ]]; then
         printf "${GREEN}[+]${NC} %-15s ${GREEN}Found!${NC} $url\n" "$platform:"
         echo "$platform,$url,FOUND" >> "$output_file"
-        STATS["found"]=$((STATS["found"] + 1))
+        echo "1" >> "$stats_dir/found"
         return 0
     else
         if [[ "$VERBOSE" == true ]]; then
             printf "${YELLOW}[-]${NC} %-15s ${YELLOW}Not Found${NC}\n" "$platform:"
         fi
-        STATS["not_found"]=$((STATS["not_found"] + 1))
+        echo "1" >> "$stats_dir/not_found"
         return 1
     fi
 }
@@ -247,6 +251,10 @@ scan_platforms() {
     local specific_platforms="$3"
     
     printf "${BLUE}[>]${NC} Scanning social media platforms for ${WHITE}$username${NC}...\n\n"
+    
+    # Create temporary directory for thread-safe statistics
+    local stats_dir="/tmp/socialsleuth_stats_$$"
+    mkdir -p "$stats_dir"
     
     local platforms_to_check=()
     if [[ -n "$specific_platforms" ]]; then
@@ -262,7 +270,7 @@ scan_platforms() {
     local count=0
     for platform in "${sorted_platforms[@]}"; do
         if [[ -n "${PLATFORMS[$platform]}" ]]; then
-            check_platform "$platform" "$username" "$output_file" &
+            check_platform "$platform" "$username" "$output_file" "$stats_dir" &
             ((count++))
             
             # Limit parallel jobs
@@ -275,6 +283,15 @@ scan_platforms() {
     done
     
     wait # Wait for remaining jobs
+    
+    # Collect statistics from temporary files
+    STATS["checked"]=$(wc -l < "$stats_dir/checked" 2>/dev/null || echo "0")
+    STATS["found"]=$(wc -l < "$stats_dir/found" 2>/dev/null || echo "0")
+    STATS["not_found"]=$(wc -l < "$stats_dir/not_found" 2>/dev/null || echo "0")
+    STATS["errors"]=$(wc -l < "$stats_dir/errors" 2>/dev/null || echo "0")
+    
+    # Clean up temporary directory
+    rm -rf "$stats_dir"
 }
 
 # Function to generate summary report
@@ -294,7 +311,13 @@ generate_summary() {
         local found_count
         found_count=$(grep -c "FOUND" "$output_file" 2>/dev/null || echo "0")
         printf "${WHITE}Results saved to:${NC} $output_file\n"
-        printf "${WHITE}Success Rate:${NC} $(( found_count * 100 / STATS[checked] ))%%\n"
+        
+        # Calculate success rate safely (avoid division by zero)
+        if [[ ${STATS[checked]} -gt 0 ]]; then
+            printf "${WHITE}Success Rate:${NC} $(( found_count * 100 / STATS[checked] ))%%\n"
+        else
+            printf "${WHITE}Success Rate:${NC} N/A (no platforms checked)\n"
+        fi
     fi
 }
 
@@ -339,7 +362,8 @@ convert_output() {
 
 # Function to cleanup temporary files
 cleanup() {
-    rm -f /tmp/socialsleuth_$$.tmp
+    rm -f /tmp/socialsleuth_*.tmp
+    rm -rf /tmp/socialsleuth_stats_*
     printf "\n${YELLOW}[!]${NC} Scan interrupted. Partial results may be available.\n"
 }
 
