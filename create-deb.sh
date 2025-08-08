@@ -5,9 +5,10 @@
 set -e
 
 PACKAGE_NAME="socialsleuth"
-VERSION="0.0.1"
-ARCH="all"
-MAINTAINER="Anis Afifi <anis@example.com>"
+# Allow overriding via environment (e.g., from CI), with sensible defaults
+VERSION="${VERSION:-0.0.1}"
+ARCH="${ARCH:-all}"
+MAINTAINER="${MAINTAINER:-Anis Afifi <anis@webxbeyond.com>}"
 
 echo "📦 Creating Debian package structure..."
 
@@ -31,9 +32,10 @@ cp LICENSE "$PACKAGE_DIR/usr/share/doc/$PACKAGE_NAME/"
 # Make executable
 chmod +x "$PACKAGE_DIR/usr/local/bin/socialsleuth"
 
-# Create man page
-cat > "$PACKAGE_DIR/usr/share/man/man1/socialsleuth.1" << 'EOF'
-.TH SOCIALSLEUTH 1 "August 2025" "SocialSleuth v0.0.1" "User Commands"
+# Create man page (use dynamic version and current date)
+DATE_STR=$(date +"%B %Y")
+cat > "$PACKAGE_DIR/usr/share/man/man1/socialsleuth.1" << EOF
+.TH SOCIALSLEUTH 1 "$DATE_STR" "SocialSleuth v$VERSION" "User Commands"
 .SH NAME
 socialsleuth \- Enhanced Social Media Username Scanner
 .SH SYNOPSIS

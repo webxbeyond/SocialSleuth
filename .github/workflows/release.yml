@@ -1,0 +1,124 @@
+name: Build and Release Debian Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 0.1.0)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    name: Determine version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - name: Derive version
+        id: ver
+        shell: bash
+        run: |
+          set -e
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.version }}" ]]; then
+            V="${{ inputs.version }}"
+          else
+            ref="${GITHUB_REF##*/}"
+            if [[ "$ref" =~ ^v([0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
+              V="${BASH_REMATCH[1]}"
+            else
+              V="0.0.1"
+            fi
+          fi
+          echo "version=$V" >> $GITHUB_OUTPUT
+
+  build-deb:
+    name: Build .deb for ${{ matrix.distro.name }}
+    runs-on: ubuntu-latest
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        distro:
+          - name: Ubuntu
+            image: ubuntu:22.04
+          - name: Kali
+            image: kalilinux/kali-rolling
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare container build script
+        shell: bash
+        run: |
+          cat > build.sh <<'EOS'
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          if command -v apt-get >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y --no-install-recommends curl jq gzip ca-certificates dpkg-dev git
+          else
+            echo "Unsupported base image: apt-get not found" >&2
+            exit 1
+          fi
+          chmod +x create-deb.sh
+          VERSION="$1" ARCH="all" bash ./create-deb.sh
+          deb_file=$(ls socialsleuth_*_all.deb | head -n1)
+          mkdir -p /workspace/artifacts
+          cp -v "$deb_file" "/workspace/artifacts/${deb_file%.deb}-${DISTRO}.deb"
+          EOS
+
+      - name: Build inside ${{ matrix.distro.image }}
+        uses: addnab/docker-run-action@v3
+        with:
+          image: ${{ matrix.distro.image }}
+          options: >-
+            -e DISTRO=${{ matrix.distro.name }}
+            -v ${{ github.workspace }}:/workspace
+            -w /workspace
+          run: |
+            bash ./build.sh '${{ needs.version.outputs.version }}'
+
+      - name: Upload artifact ${{ matrix.distro.name }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.distro.name }}
+          path: artifacts/*.deb
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [version, build-deb]
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Gather files
+        shell: bash
+        run: |
+          shopt -s globstar nullglob
+          mkdir -p upload
+          cp dist/**/**/*.deb upload/ || true
+          ls -l upload || true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', needs.version.outputs.version) }}
+          name: SocialSleuth ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || needs.version.outputs.version }}
+          body: |
+            Automated release for SocialSleuth.
+            Includes Debian packages for Ubuntu and Kali.
+          files: |
+            upload/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
