@@ -533,18 +533,44 @@ main() {
         exit 1
     fi
 
-        # RDAP-based domain checking for multiple TLDs
+        # Improved RDAP-based domain checking for multiple TLDs and full domain input
         local tlds=(".com" ".net" ".org" ".io" ".co")
-        printf "${BLUE}[>]${NC} Checking domain availability for: ${WHITE}$username${NC} (via RDAP)\n"
+        local name="$username"
+        if [[ "$name" == *.* ]]; then
+                local base="${name%%.*}"
+                local ext=".${name##*.}"
+                tlds=("$ext")
+                name="$base"
+        fi
+
+        check_domain() {
+            local domain="$1"
+            local code
+            code=$(curl -sS -L -o /dev/null -w "%{http_code}" \
+                         -H 'Accept: application/rdap+json' \
+                         --connect-timeout 5 --max-time 10 \
+                         "https://rdap.org/domain/${domain}")
+
+            case "$code" in
+                200) echo "TAKEN" ;;
+                404) echo "AVAILABLE" ;;
+                429) echo "UNKNOWN(429 rate-limited)" ;;
+                5*)  echo "UNKNOWN(${code} server error)" ;;
+                *)   echo "UNKNOWN(${code})" ;;
+            esac
+        }
+
+        printf "${BLUE}[>]${NC} Checking domain availability for: ${WHITE}%s${NC} (RDAP)\n" "$name"
         for tld in "${tlds[@]}"; do
-            local domain="$username$tld"
-            printf "  ${WHITE}$domain${NC}: "
-            http_code=$(curl -s -o /dev/null -w "%{http_code}" "https://rdap.org/domain/$domain")
-            if [[ "$http_code" -eq 404 ]]; then
-                printf "${GREEN}AVAILABLE${NC}\n"
-            else
-                printf "${RED}TAKEN${NC}\n"
-            fi
+            local domain="${name}${tld}"
+            printf "  ${WHITE}%s${NC}: " "$domain"
+            local status
+            status=$(check_domain "$domain")
+            case "$status" in
+                AVAILABLE) printf "${GREEN}AVAILABLE${NC}\n" ;;
+                TAKEN)     printf "${RED}TAKEN${NC}\n" ;;
+                *)         printf "${WHITE}%s${NC}\n" "$status" ;;
+            esac
         done
 
     # Setup output directory
