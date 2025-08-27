@@ -533,6 +533,20 @@ main() {
         exit 1
     fi
 
+        # RDAP-based domain checking for multiple TLDs
+        local tlds=(".com" ".net" ".org" ".io" ".co")
+        printf "${BLUE}[>]${NC} Checking domain availability for: ${WHITE}$username${NC} (via RDAP)\n"
+        for tld in "${tlds[@]}"; do
+            local domain="$username$tld"
+            printf "  ${WHITE}$domain${NC}: "
+            http_code=$(curl -s -o /dev/null -w "%{http_code}" "https://rdap.org/domain/$domain")
+            if [[ "$http_code" -eq 404 ]]; then
+                printf "${GREEN}AVAILABLE${NC}\n"
+            else
+                printf "${RED}TAKEN${NC}\n"
+            fi
+        done
+
     # Setup output directory
     setup_output
     
