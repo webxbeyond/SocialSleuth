@@ -533,20 +533,42 @@ main() {
         exit 1
     fi
 
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+WHITE='\033[1;37m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
-        # Check domain availability for multiple TLDs
-        local tlds=(".com" ".net" ".org" ".io" ".co")
-        printf "${BLUE}[>]${NC} Checking domain availability for: ${WHITE}$username${NC} (multiple TLDs)\n"
-        for tld in "${tlds[@]}"; do
-            local domain="$username$tld"
-            printf "  ${WHITE}$domain${NC}: "
-            if whois "$domain" 2>&1 | grep -q "No match for domain"; then
-                printf "${GREEN}AVAILABLE${NC}\n"
-            else
-                printf "${RED}TAKEN${NC}\n"
-            fi
-        done
-    
+# TLDs you want to check
+tlds=(".com" ".net" ".org" ".io" ".co")
+
+# Domain/username input
+username="$1"
+
+if [[ -z "$username" ]]; then
+  echo "Usage: $0 <domain_without_tld>"
+  exit 1
+fi
+
+printf "${BLUE}[>]${NC} Checking domain availability for: ${WHITE}$username${NC} (via RDAP)\n"
+
+for tld in "${tlds[@]}"; do
+    domain="$username$tld"
+    printf "  ${WHITE}$domain${NC}: "
+
+    # RDAP query (standardized JSON API)
+    response=$(curl -s "https://rdap.org/domain/$domain")
+
+    # RDAP returns HTTP 404 if not found = AVAILABLE
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" "https://rdap.org/domain/$domain")
+
+    if [[ "$http_code" -eq 404 ]]; then
+        printf "${GREEN}AVAILABLE${NC}\n"
+    else
+        printf "${RED}TAKEN${NC}\n"
+    fi
+done
+
     # Setup output directory
     setup_output
     
