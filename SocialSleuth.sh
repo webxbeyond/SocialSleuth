@@ -532,6 +532,20 @@ main() {
     if ! validate_username "$username"; then
         exit 1
     fi
+
+
+        # Check domain availability for multiple TLDs
+        local tlds=(".com" ".net" ".org" ".io" ".co")
+        printf "${BLUE}[>]${NC} Checking domain availability for: ${WHITE}$username${NC} (multiple TLDs)\n"
+        for tld in "${tlds[@]}"; do
+            local domain="$username$tld"
+            printf "  ${WHITE}$domain${NC}: "
+            if whois "$domain" 2>&1 | grep -q "No match for domain"; then
+                printf "${GREEN}AVAILABLE${NC}\n"
+            else
+                printf "${RED}TAKEN${NC}\n"
+            fi
+        done
     
     # Setup output directory
     setup_output
