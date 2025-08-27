@@ -1,4 +1,4 @@
-# SocialSleuth v0.0.1 - Enhanced Social Media Username Scanner
+# SocialSleuth v0.0.1 - Social Media Username Scanner
 
 An advanced, feature-rich tool for discovering usernames across multiple social media platforms and data breach sources. This enhanced version includes significant improvements in functionality, performance, and usability.
 
