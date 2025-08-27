@@ -7,7 +7,7 @@ set -e
 PACKAGE_NAME="socialsleuth"
 VERSION="0.0.1"
 ARCH="all"
-MAINTAINER="Anis Afifi <anis@example.com>"
+MAINTAINER="Anis Afifi <anis@anisafifi.com>"
 
 echo "📦 Creating Debian package structure..."
 
